@@ -16,7 +16,7 @@ st.set_page_config(
 # -------------------------------------------------------------
 # 2. API & DATABASE SETUP
 # -------------------------------------------------------------
-GROQ_API_KEY = "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"  # Yahan apni Groq API Key dalein
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 def init_db():
