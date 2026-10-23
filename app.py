@@ -2,11 +2,12 @@ import streamlit as st
 import sqlite3
 import os
 import asyncio
+import datetime
 import edge_tts
 from groq import Groq
 
 # -------------------------------------------------------------
-# 1. PAGE CONFIG & STYLING
+# 1. PAGE CONFIG & STYLING (Bada Mic & Clean UI)
 # -------------------------------------------------------------
 st.set_page_config(
     page_title="Shivaan's AI Dost",
@@ -14,13 +15,26 @@ st.set_page_config(
     layout="centered"
 )
 
+st.markdown("""
+    <style>
+    /* Mic button ko bada aur highlight karne ke liye CSS */
+    div[data-testid="stAudioInput"] {
+        background-color: #1e293b;
+        border-radius: 15px;
+        padding: 20px;
+        border: 2px solid #3b82f6;
+        text-align: center;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # -------------------------------------------------------------
-# 2. API & DATABASE SETUP (Using Streamlit Secrets for Safety)
+# 2. API & DATABASE SETUP
 # -------------------------------------------------------------
 try:
     GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 except:
-    GROQ_API_KEY = "YOUR_FALLBACK_KEY_IF_LOCAL"  # Local testing ke liye yahan key daal sakte hain
+    GROQ_API_KEY = "YOUR_FALLBACK_KEY_IF_LOCAL"
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
@@ -64,14 +78,29 @@ def get_memory_context():
         return ""
 
 # -------------------------------------------------------------
-# 3. AI CORE & STRICT FACTUAL PROMPT
+# 3. ROBUST MODEL DISCOVERY (Fixes 404 Error Permanently)
 # -------------------------------------------------------------
-SYSTEM_PROMPT = """
+def get_active_groq_model():
+    try:
+        models = groq_client.models.list()
+        active_ids = [m.id for m in models.data]
+        valid_text = [m for m in active_ids if "llama" in m.lower() and "guard" not in m.lower()]
+        if valid_text:
+            return valid_text[0]
+        return active_ids[0] if active_ids else "llama3-8b-8192"
+    except:
+        return "llama3-8b-8192"
+
+# Get current date to feed into AI brain
+current_date_str = datetime.date.today().strftime("%d %B %Y")
+
+SYSTEM_PROMPT = f"""
 Tumhara naam 'Dost' hai. Tum Shivaan Sharma ke sabse acche aur smart Dost ho.
 Shivaan 1st class me padhta hai, uske papa Saurabh Sharma hain.
+Aaj ki taarikh (Current Date) hai: {current_date_str}.
 
 STRICT RULES:
-1. Give STRICTLY factual, precise, and accurate answers. No random guessing or fokat ki baatein.
+1. Give STRICTLY factual, precise, and accurate answers. No random guessing.
 2. Keep answers very short (maximum 1-2 short sentences). 
 3. Use polite Hinglish ("Aap", "Tum").
 """
@@ -81,13 +110,13 @@ def get_ai_response(user_query):
         memory = get_memory_context()
         full_prompt = f"{SYSTEM_PROMPT}\n\nRecent Memory:\n{memory}\n\nShivaan asks: {user_query}"
         
-        # Using a stable, high-performance chat model to avoid classification errors
+        model_name = get_active_groq_model()
         chat_completion = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": full_prompt}, 
                 {"role": "user", "content": user_query}
             ],
-            model="llama-3.3-70b-versatile",
+            model=model_name,
             temperature=0.3,
             max_tokens=150
         )
@@ -124,7 +153,7 @@ async def text_to_speech(text):
     return output_file
 
 # -------------------------------------------------------------
-# 4. STREAMLIT INTERACTIVE UI (Voice + Text + Papa Dashboard)
+# 4. STREAMLIT UI DESIGN
 # -------------------------------------------------------------
 init_db()
 
@@ -157,18 +186,17 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- VOICE INPUT SECTION (Browser Mic) ---
+# --- PROMINENT VOICE INPUT SECTION ---
 st.write("---")
-st.subheader("🎙️ Voice Assistant (Shivaan ke liye)")
-audio_bytes = st.audio_input("Mic dabayein aur boliye:")
+st.markdown("### 🎙️ Voice Assistant (Shivaan ke liye)")
+st.caption("Mic button par click karke bolein, phir thodi der rukein jab tak Dost jawab na de:")
+audio_bytes = st.audio_input("🎤 Bolne ke liye yahan click karein")
 
 if audio_bytes:
-    with st.spinner("🎙️ Dost aapki aawaz sun raha hai..."):
-        # Save temporary recorded audio from browser
+    with st.spinner("🎙️ Dost sun raha hai... (Bolne ke baad wait karein)"):
         with open("user_voice.wav", "wb") as f:
             f.write(audio_bytes.read())
         
-        # Transcribe using Whisper
         user_query = transcribe_audio("user_voice.wav")
         
         if user_query:
@@ -176,13 +204,11 @@ if audio_bytes:
             with st.chat_message("user"):
                 st.markdown(f"🗣️ (Voice): {user_query}")
                 
-            # Get AI Reply
             with st.chat_message("assistant"):
                 with st.spinner("⚡ Dost soch raha hai..."):
                     response = get_ai_response(user_query)
                     st.markdown(response)
                     
-                    # Generate & Play Audio Response
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     audio_path = loop.run_until_complete(text_to_speech(response))
@@ -205,7 +231,6 @@ if prompt := st.chat_input("Ya yahan type karein..."):
             response = get_ai_response(prompt)
             st.markdown(response)
             
-            # Speak text response
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             audio_path = loop.run_until_complete(text_to_speech(response))
